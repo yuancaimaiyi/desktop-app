@@ -1,6 +1,6 @@
 import React from "react";
 import { Modal } from "antd";
-import { open as dialogOpen } from "@tauri-apps/plugin-dialog";
+import { open as dialogOpen } from "@tauri-apps/api/dialog";
 import { api, OperatorSummary, OFFICIAL_OPERATORS, OfficialOperator } from "../api";
 import { toast } from "../components/toast";
 

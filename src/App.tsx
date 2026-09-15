@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { App as AntApp, ConfigProvider } from "antd";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { appWindow } from "@tauri-apps/api/window";
 import { _msgRef, _notifRef, toast } from "./components/toast";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { heraTheme } from "./theme";
@@ -144,15 +144,15 @@ export function App() {
           </div>
           <div className="hs-winbtns">
             <button className="hs-winbtn" title="最小化"
-              onClick={() => void getCurrentWindow().minimize()}>
+              onClick={() => void appWindow.minimize()}>
               <svg width="12" height="12" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.6"><path d="M5 12h14"/></svg>
             </button>
             <button className="hs-winbtn" title="最大化"
-              onClick={() => void getCurrentWindow().toggleMaximize()}>
+              onClick={() => void appWindow.toggleMaximize()}>
               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><rect x="4" y="4" width="16" height="16" rx="1"/></svg>
             </button>
             <button className="hs-winbtn close" title="关闭"
-              onClick={() => void getCurrentWindow().close()}>
+              onClick={() => void appWindow.close()}>
               <svg width="12" height="12" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.6"><path d="M6 6l12 12M18 6L6 18"/></svg>
             </button>
           </div>

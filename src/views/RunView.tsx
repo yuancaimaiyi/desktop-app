@@ -1,5 +1,5 @@
 import React from "react";
-import { open } from "@tauri-apps/plugin-dialog";
+import { open } from "@tauri-apps/api/dialog";
 import { api, WorkflowDetail, WorkflowSummary, JobEvent, NodeDetail, HeraSession } from "../api";
 import { toast } from "../components/toast";
 
@@ -21,6 +21,26 @@ interface Props {
   onRequestSession?: () => void;
 }
 
+/** Pick the sibling file from a HeraSession that matches the workflow's declared
+ * input extension. A .hera session opens as `session.path` (.hera) but stitch-like
+ * workflows require the paired `.insv` — passing the .hera path to MediaSDKTest
+ * makes it silently exit 0 with no output. When the workflow declares specific
+ * `input.ext` values, prefer whichever sibling matches; otherwise fall back to
+ * the .hera path itself.
+ */
+function pickInputFromSession(
+  session: HeraSession | null | undefined,
+  wfInput: { type: string; ext?: string[] } | undefined,
+): string {
+  if (!session) return "";
+  const exts = (wfInput?.ext ?? []).map((e) => e.toLowerCase());
+  if (exts.length === 0) return session.path;
+  const lowerPath = session.path.toLowerCase();
+  if (exts.some((e) => lowerPath.endsWith(e))) return session.path;
+  if (exts.includes(".insv") && session.insv_path) return session.insv_path;
+  return session.path;
+}
+
 export function RunView({ onCrumbChange, currentSession, onRequestSession }: Props) {
   const [workflows, setWorkflows] = React.useState<WorkflowSummary[]>([]);
   const [selected, setSelected] = React.useState<WorkflowDetail | null>(null);
@@ -36,10 +56,13 @@ export function RunView({ onCrumbChange, currentSession, onRequestSession }: Pro
     api.listWorkflows().then(setWorkflows).catch(() => {});
   }, []);
 
-  // Pre-fill input path from current session whenever it changes
+  // Pre-fill input path from current session whenever session OR selected workflow
+  // changes. Workflow matters here because .hera and .insv are siblings and only
+  // the workflow's declared `input.ext` tells us which one this run needs.
   React.useEffect(() => {
-    if (currentSession?.path) setInputPath(currentSession.path);
-  }, [currentSession?.path]);
+    const picked = pickInputFromSession(currentSession, selected?.input);
+    if (picked) setInputPath(picked);
+  }, [currentSession?.path, currentSession?.insv_path, selected?.input]);
 
   React.useEffect(() => {
     let unlisten: (() => void) | null = null;
@@ -61,7 +84,7 @@ export function RunView({ onCrumbChange, currentSession, onRequestSession }: Pro
   async function selectWorkflow(id: string) {
     const wf = await api.getWorkflow(id);
     setSelected(wf);
-    setInputPath(currentSession?.path ?? "");
+    setInputPath(pickInputFromSession(currentSession, wf.input));
     setJobId(null);
     setStepStates({});
     onCrumbChange?.(wf.name + " › 配置与执行");
@@ -119,6 +142,16 @@ export function RunView({ onCrumbChange, currentSession, onRequestSession }: Pro
 
   async function startRun() {
     if (!inputPath.trim() || !selected || gpuBlockedReason) return;
+    // Guard against wrong-extension inputs — e.g. passing .hera to a stitch
+    // workflow that expects .insv, which MediaSDKTest silently swallows.
+    const allowedExts = (selected.input.ext ?? []).map((e) => e.toLowerCase());
+    if (selected.input.type === "file" && allowedExts.length > 0) {
+      const lp = inputPath.trim().toLowerCase();
+      if (!allowedExts.some((e) => lp.endsWith(e))) {
+        toast.error(`此工作流需要 ${allowedExts.join(" / ")} 文件，当前输入不匹配`);
+        return;
+      }
+    }
     const paramOverrides: Record<string, Record<string, unknown>> = {};
     for (const node of selected.nodes) paramOverrides[node.id] = paramData[node.id] ?? {};
     const initStates: Record<string, StepState> = {};

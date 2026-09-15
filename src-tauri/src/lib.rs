@@ -6,9 +6,8 @@ use tauri::Manager;
 
 pub fn run() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
-            let app_dir = app.path().app_data_dir().unwrap();
+            let app_dir = app.path_resolver().app_data_dir().unwrap();
             std::fs::create_dir_all(&app_dir).ok();
 
             let config_path = app_dir.join("config.toml");
@@ -34,7 +33,7 @@ pub fn run() {
             // and operators/ dirs, so it silently shadows live edits. Debug builds always
             // have the real source tree available (workspace_root), so skip resource_dir
             // entirely there; only packaged release builds need it.
-            let resource_dir = if cfg!(debug_assertions) { None } else { app.path().resource_dir().ok() };
+            let resource_dir = if cfg!(debug_assertions) { None } else { app.path_resolver().resource_dir() };
 
             // Prefer bundled resource_dir/workflows (production .deb/.AppImage/.exe),
             // fall back to workspace_root/workflows (dev / HERA_WORKSPACE).

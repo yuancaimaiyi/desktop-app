@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Manager, State};
 
 use crate::state::AppState;
 use hera_runner::config::AppConfig;
@@ -235,7 +235,7 @@ pub async fn run_workflow(
                 }
             }
 
-            let _ = app2.emit("job-event", payload);
+            let _ = app2.emit_all("job-event", &payload);
         }
 
         if let Ok(reg) = hera_runner::registry::Registry::open(Path::new(&reg_path)) {
