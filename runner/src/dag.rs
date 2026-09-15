@@ -104,6 +104,26 @@ async fn run_workflow_inner(
     tx: &mpsc::Sender<JobEvent>,
 ) -> anyhow::Result<()> {
     std::fs::create_dir_all(job_dir)?;
+
+    // Fail fast when the output partition is nearly full — GLIM writes multi-GB
+    // intermediate submaps/graphs and a mid-run ENOSPC surfaces as cryptic
+    // downstream errors (JSON parse fail on a truncated write, ENAMETOOLONG on a
+    // hashed temp path, etc.) that are hard to trace back to disk pressure.
+    // 5 GB threshold is arbitrary but covers a typical medium recon.
+    if let Some(parent) = job_dir.parent() {
+        if let Some(free_gb) = free_space_gb(parent) {
+            if free_gb < 5 {
+                anyhow::bail!(
+                    "输出目录所在分区剩余空间不足 ({} GB < 5 GB 阈值)：{}\n\
+                     GLIM 会写数 GB 中间数据，磁盘接近满时会失败。请先清理磁盘再重试。\n\
+                     推荐：docker system prune -a --volumes -f  可回收大量空间。",
+                    free_gb,
+                    parent.display()
+                );
+            }
+        }
+    }
+
     // Docker bind mounts require absolute paths
     let job_dir = job_dir
         .canonicalize()
@@ -223,6 +243,50 @@ async fn run_workflow_inner(
                     &stderr_tail.join("\n"),
                 )
             };
+            let _ = tx
+                .send(JobEvent::StepFailed {
+                    step: node.id.clone(),
+                    exit_code,
+                    reason: reason.clone(),
+                })
+                .await;
+            return Err(anyhow::anyhow!(reason));
+        }
+
+        // Silent-failure guard: some GPU containers (e.g. Insta360 MediaSDKTest fed
+        // the wrong file type) print an init line, exit 0, and produce no output.
+        // Without this check the framework happily reports success while the step
+        // dir stays empty and downstream nodes get missing inputs. See
+        // hera-output/{2867ef98,3e843a6c,43493a01,...} for concrete cases where a
+        // .hera path was passed to a workflow declaring .insv input.
+        let mut missing_outputs: Vec<String> = Vec::new();
+        for out in &op.outputs {
+            let host_path = match outputs.get(&out.id) {
+                Some(p) => Path::new(p),
+                None => continue, // shouldn't happen; resolve_outputs filled all declared outputs
+            };
+            let ok = match out.io_type {
+                crate::manifest::IoType::File => host_path
+                    .metadata()
+                    .map(|m| m.is_file() && m.len() > 0)
+                    .unwrap_or(false),
+                crate::manifest::IoType::Dir => host_path.is_dir()
+                    && std::fs::read_dir(host_path)
+                        .map(|mut it| it.next().is_some())
+                        .unwrap_or(false),
+            };
+            if !ok {
+                missing_outputs.push(format!("{} ({})", out.id, host_path.display()));
+            }
+        }
+        if !missing_outputs.is_empty() {
+            let reason = format!(
+                "步骤 {} 退出码为 0 但没有产出声明的输出：{}。\n\
+                 常见原因：容器接收了错误类型的输入文件、GPU/CUDA 初始化静默失败、\n\
+                 或磁盘/权限问题。请检查上面的容器日志。",
+                node.id,
+                missing_outputs.join(", ")
+            );
             let _ = tx
                 .send(JobEvent::StepFailed {
                     step: node.id.clone(),
@@ -362,11 +426,29 @@ fn prepare_config_dir(
     } else if let Some(image_path) = &rw_mount.image_config_path {
         // Priority 2: auto-extract from image and cache
         let cache = config.config_cache_dir().join(&op.id).join("config");
-        if !cache.exists() {
-            tracing::info!(
-                "Config cache not found for {}, extracting from image {} ...",
-                op.id, op.image
-            );
+        // Check for existence AND non-emptiness: a prior interrupted extraction can
+        // leave the cache dir created but empty (create_dir_all succeeds before
+        // `docker cp` runs). Without the empty check, subsequent runs skip
+        // extraction, copy 0 files to job config, and downstream patching fails
+        // with cryptic errors on missing config_sensors.json / config.json.
+        let cache_populated = cache.is_dir()
+            && std::fs::read_dir(&cache)
+                .map(|mut it| it.next().is_some())
+                .unwrap_or(false);
+        if !cache_populated {
+            if cache.exists() {
+                tracing::warn!(
+                    "Config cache {} exists but is empty (likely from an interrupted \
+                     previous extraction), re-extracting from image {} ...",
+                    cache.display(), op.image
+                );
+                let _ = std::fs::remove_dir_all(&cache);
+            } else {
+                tracing::info!(
+                    "Config cache not found for {}, extracting from image {} ...",
+                    op.id, op.image
+                );
+            }
             extract_config_from_image(&op.image, image_path, &cache)?;
             tracing::info!("Config extracted to {}", cache.display());
         }
@@ -486,6 +568,28 @@ mod verbatim_prefix_tests {
         let got = strip_windows_verbatim_prefix(p.clone());
         assert_eq!(got, p);
     }
+}
+
+/// Query free space (GiB) on the partition containing `path`. Returns None if
+/// the query fails for any reason (missing df binary, unusual mount, etc.) —
+/// callers treat that as "unknown, skip the check" rather than fatal.
+fn free_space_gb(path: &Path) -> Option<u64> {
+    // Portable-ish: shell out to `df -B1 --output=avail`. Skips POSIX statvfs
+    // FFI and keeps the runner dep-free. Works on Linux/macOS `df` (GNU or BSD
+    // with slight header diffs — the `--output=avail` flag is GNU only but
+    // that's what our target platforms have).
+    let out = std::process::Command::new("df")
+        .args(["-B1", "--output=avail"])
+        .arg(path)
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let s = String::from_utf8_lossy(&out.stdout);
+    // Skip header line, parse number from data line
+    let bytes: u64 = s.lines().nth(1)?.trim().parse().ok()?;
+    Some(bytes / (1024 * 1024 * 1024))
 }
 
 fn copy_dir_all(src: &Path, dst: &Path) -> anyhow::Result<()> {
