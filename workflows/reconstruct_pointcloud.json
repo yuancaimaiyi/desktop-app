@@ -11,6 +11,7 @@
     {
       "id": "step_recon",
       "operator": "glim-recon",
+      "version": "r0.22",
       "params": {
         "window": 0.1,
         "mounting_rpy": [0, 0, 0],
@@ -22,6 +23,7 @@
     {
       "id": "step_export",
       "operator": "glim-export-pcd",
+      "version": "0.1",
       "params": {
         "format": "ply"
       }
