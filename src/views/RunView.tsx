@@ -616,18 +616,17 @@ function ParamField({ id: _id, schema: s, value, onChange }: {
     return (
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
         {Array.from({ length: arrLen }, (_, i) => (
-          <input
+          <NumberInput
             key={i}
             className="hs-input mono"
-            type="number"
             style={{ width: W, height: 28, padding: "0 6px", textAlign: "center", fontSize: 12 }}
             title={LABELS[i]}
             placeholder={LABELS[i]}
             value={arr[i] ?? 0}
-            onChange={(e) => {
+            onCommit={(n) => {
               const next = [...arr];
               while (next.length < arrLen) next.push(0);
-              next[i] = parseFloat(e.target.value) || 0;
+              next[i] = n;
               onChange(next);
             }}
             step="any"
@@ -637,14 +636,84 @@ function ParamField({ id: _id, schema: s, value, onChange }: {
     );
   }
 
+  if (isNumber) {
+    return (
+      <NumberInput
+        className="hs-input mono"
+        style={{ width: "100%" }}
+        value={(value ?? s.default) as number | undefined}
+        onCommit={(n) => onChange(n)}
+        step="any"
+      />
+    );
+  }
+
   return (
     <input
       className="hs-input mono"
       style={{ width: "100%" }}
-      type={isNumber ? "number" : "text"}
+      type="text"
       value={String(value ?? s.default ?? "")}
-      onChange={(e) => onChange(isNumber ? (parseFloat(e.target.value) || 0) : e.target.value)}
-      step={isNumber ? "any" : undefined}
+      onChange={(e) => onChange(e.target.value)}
+    />
+  );
+}
+
+/**
+ * Number input with local edit buffer.
+ *
+ * 原生 <input type="number" value={num}> 有两个坑：
+ *   1) `parseFloat("") = NaN`：清空输入框那一瞬会把上层 state clobber 成 0（如果用了 `|| 0`）
+ *   2) 受控回写会吞掉中间态："0." 立刻被解析成 0 再回写成 "0"，小数点永远敲不进去
+ * 这里维护一份本地字符串编辑缓冲：
+ *   - 只有解析出**有限数字**（且真的变了）才 onCommit
+ *   - 外部 value 变更会同步到缓冲（除非用户正在编辑一个正解析成同值的字符串）
+ *   - 失焦时若缓冲无效则恢复到外部 value 显示
+ */
+function NumberInput({
+  value, onCommit, className, style, title, placeholder, step,
+}: {
+  value: number | undefined;
+  onCommit: (n: number) => void;
+  className?: string;
+  style?: React.CSSProperties;
+  title?: string;
+  placeholder?: string;
+  step?: string;
+}) {
+  const [buf, setBuf] = React.useState<string>(value == null ? "" : String(value));
+  // 外部 value 变了 → 只在缓冲不能解析成同值时才刷新（避免打断用户"0."中间态）
+  React.useEffect(() => {
+    const parsed = parseFloat(buf);
+    if (!Number.isFinite(parsed) || parsed !== value) {
+      setBuf(value == null ? "" : String(value));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value]);
+  return (
+    <input
+      className={className}
+      style={style}
+      title={title}
+      placeholder={placeholder}
+      type="text"
+      inputMode="decimal"
+      value={buf}
+      step={step}
+      onChange={(e) => {
+        const t = e.target.value;
+        setBuf(t);
+        const n = parseFloat(t);
+        if (Number.isFinite(n) && n !== value) {
+          onCommit(n);
+        }
+      }}
+      onBlur={() => {
+        const n = parseFloat(buf);
+        if (!Number.isFinite(n)) {
+          setBuf(value == null ? "" : String(value));
+        }
+      }}
     />
   );
 }
