@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use tokio::sync::mpsc;
 use uuid::Uuid;
@@ -15,7 +16,8 @@ pub enum JobEvent {
     StepStart { step: String, image: String },
     Log { step: String, text: String, is_stderr: bool },
     StepComplete { step: String },
-    StepFailed { step: String, exit_code: i32, reason: String },
+    // log_path 指向 step_dir/step.log；失败时把它带给前端方便一键打开定位问题。
+    StepFailed { step: String, exit_code: i32, reason: String, log_path: Option<String> },
     JobComplete { artifacts: Vec<Artifact> },
     JobFailed { step: String, reason: String },
 }
@@ -216,6 +218,11 @@ async fn run_workflow_inner(
             .run(&op.image, needs_gpu, &mounts, &env, &command, &container_name)
             .await?;
 
+        // 把 stdout+stderr 都落到 step_dir/step.log。事后诊断 / 用户查看用；
+        // 前端流式 UI 仍然通过 JobEvent::Log 事件推送，两条路互不影响。
+        let log_path = step_dir.join("step.log");
+        let mut log_file = std::fs::File::create(&log_path).ok();
+
         let mut stderr_tail: Vec<String> = Vec::new();
         while let Some(line) = log_rx.recv().await {
             let is_stderr = matches!(line.stream, crate::container::Stream::Stderr);
@@ -225,6 +232,10 @@ async fn run_workflow_inner(
                     stderr_tail.remove(0);
                 }
             }
+            if let Some(f) = log_file.as_mut() {
+                let prefix = if is_stderr { "[E] " } else { "[O] " };
+                let _ = writeln!(f, "{}{}", prefix, line.text);
+            }
             let _ = tx
                 .send(JobEvent::Log {
                     step: node.id.clone(),
@@ -233,21 +244,28 @@ async fn run_workflow_inner(
                 })
                 .await;
         }
+        drop(log_file);
 
         if !op.exit_codes_ok.contains(&exit_code) {
+            let log_path_str = log_path.to_string_lossy().to_string();
             let reason = if stderr_tail.is_empty() {
-                format!("步骤 {} 执行失败（退出码 {}），请查看日志了解详情。", node.id, exit_code)
+                format!(
+                    "步骤 {} 执行失败（退出码 {}）。完整日志：{}",
+                    node.id, exit_code, log_path_str
+                )
             } else {
-                crate::docker_diag::friendly_docker_error(
+                let base = crate::docker_diag::friendly_docker_error(
                     &format!("步骤 {} 执行失败（退出码 {}）", node.id, exit_code),
                     &stderr_tail.join("\n"),
-                )
+                );
+                format!("{}\n\n完整日志：{}", base, log_path_str)
             };
             let _ = tx
                 .send(JobEvent::StepFailed {
                     step: node.id.clone(),
                     exit_code,
                     reason: reason.clone(),
+                    log_path: Some(log_path_str),
                 })
                 .await;
             return Err(anyhow::anyhow!(reason));
@@ -280,18 +298,21 @@ async fn run_workflow_inner(
             }
         }
         if !missing_outputs.is_empty() {
+            let log_path_str = log_path.to_string_lossy().to_string();
             let reason = format!(
                 "步骤 {} 退出码为 0 但没有产出声明的输出：{}。\n\
                  常见原因：容器接收了错误类型的输入文件、GPU/CUDA 初始化静默失败、\n\
-                 或磁盘/权限问题。请检查上面的容器日志。",
+                 或磁盘/权限问题。\n\n完整日志：{}",
                 node.id,
-                missing_outputs.join(", ")
+                missing_outputs.join(", "),
+                log_path_str,
             );
             let _ = tx
                 .send(JobEvent::StepFailed {
                     step: node.id.clone(),
                     exit_code,
                     reason: reason.clone(),
+                    log_path: Some(log_path_str),
                 })
                 .await;
             return Err(anyhow::anyhow!(reason));

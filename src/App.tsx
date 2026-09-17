@@ -24,6 +24,56 @@ function ToastProvider() {
   return null;
 }
 
+/**
+ * Ubuntu 20.04 (Tauri v1 + WebKitGTK) 下浏览器的 Ctrl+= / Ctrl+- / Ctrl+0 / Ctrl+滚轮 缩放
+ * 快捷键不会被 WebKit 自动响应。这里手动接管，用 CSS `zoom` 作用于 document.body。
+ * zoom 属性在 WebKit / Chromium 都支持，且不会影响布局逻辑（不像 transform: scale）。
+ */
+function useUiZoom() {
+  React.useEffect(() => {
+    const STORAGE_KEY = "hera-ui-zoom";
+    const MIN = 0.6, MAX = 2.0, STEP = 0.1;
+    const load = () => {
+      const v = parseFloat(localStorage.getItem(STORAGE_KEY) || "1");
+      return Number.isFinite(v) ? Math.min(MAX, Math.max(MIN, v)) : 1;
+    };
+    const apply = (v: number) => {
+      (document.body.style as unknown as { zoom: string }).zoom = String(v);
+      localStorage.setItem(STORAGE_KEY, String(v));
+    };
+    apply(load());
+
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      let cur = load();
+      if (e.key === "=" || e.key === "+") {
+        cur = Math.min(MAX, cur + STEP);
+      } else if (e.key === "-" || e.key === "_") {
+        cur = Math.max(MIN, cur - STEP);
+      } else if (e.key === "0") {
+        cur = 1;
+      } else {
+        return;
+      }
+      e.preventDefault();
+      apply(cur);
+    };
+    const onWheel = (e: WheelEvent) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      e.preventDefault();
+      let cur = load();
+      cur = e.deltaY < 0 ? Math.min(MAX, cur + STEP) : Math.max(MIN, cur - STEP);
+      apply(cur);
+    };
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("wheel", onWheel, { passive: false });
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("wheel", onWheel);
+    };
+  }, []);
+}
+
 const CRUMB_LABELS: Record<ViewId, string> = {
   data:      "会话浏览器",
   run:       "配置与执行",
@@ -45,6 +95,7 @@ const VIEW_LABELS: Record<ViewId, string> = {
 };
 
 export function App() {
+  useUiZoom();
   const [view, setView]               = useState<ViewId>("data");
   const [config, setConfig]           = useState<AppConfig | null>(null);
   const [currentSession, setCurrentSession] = useState<HeraSession | null>(null);

@@ -209,8 +209,9 @@ pub async fn run_workflow(
                 JobEvent::StepComplete { step } => serde_json::json!({
                     "type": "step_complete", "job": jid2, "step": step
                 }),
-                JobEvent::StepFailed { step, exit_code, reason } => serde_json::json!({
-                    "type": "step_failed", "job": jid2, "step": step, "exit_code": exit_code, "reason": reason
+                JobEvent::StepFailed { step, exit_code, reason, log_path } => serde_json::json!({
+                    "type": "step_failed", "job": jid2, "step": step,
+                    "exit_code": exit_code, "reason": reason, "log_path": log_path,
                 }),
                 JobEvent::JobComplete { artifacts } => {
                     success = true;

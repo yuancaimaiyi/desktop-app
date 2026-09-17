@@ -139,6 +139,8 @@ export interface JobEvent {
   exit_code?: number;
   reason?: string;
   artifacts?: Artifact[];
+  /** step 失败时的日志文件路径（host 侧），由 runner 写入 step_dir/step.log */
+  log_path?: string;
 }
 
 export interface AppConfig {

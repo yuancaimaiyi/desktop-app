@@ -210,8 +210,11 @@ async fn cmd_run(
             JobEvent::StepComplete { step } => {
                 println!("[{}] ✓ done", step);
             }
-            JobEvent::StepFailed { step, exit_code, reason } => {
+            JobEvent::StepFailed { step, exit_code, reason, log_path } => {
                 eprintln!("[{}] ✗ FAILED  exit={}\n{}", step, exit_code, reason);
+                if let Some(p) = log_path {
+                    eprintln!("[{}] log: {}", step, p);
+                }
             }
             JobEvent::JobComplete { artifacts } => {
                 success = true;
