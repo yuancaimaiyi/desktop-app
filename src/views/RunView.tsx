@@ -5,6 +5,17 @@ import { toast } from "../components/toast";
 
 type StepState = "pending" | "running" | "done" | "failed";
 
+// 只保留主流水线用得到的 5 个工作流；其他（转 bag、静止点云、拼接+抽帧合并、赋位姿 TBD 等）在 UI 中隐藏。
+// 赋位姿目前由 /media/yuancaimaiyi/yuancaimaiyi/data/panorama_to_prior_poses.py 单独离线跑，
+// 待接入桌面工作流后把 id 加入本集合。
+const VISIBLE_WORKFLOW_IDS = new Set<string>([
+  "reconstruct_pointcloud", // 激光重建
+  "panorama_stitch_gpu",    // 拼接
+  "calib_frame_extract",    // 抽帧
+  "calib_time_sync",        // 标定（时间同步）
+  // "assign_prior_poses",  // 赋位姿 — TODO: 待创建对应 workflow 后放开
+]);
+
 type SchemaProp = {
   type?: string;
   enum?: string[];
@@ -51,9 +62,13 @@ export function RunView({ onCrumbChange, currentSession, onRequestSession }: Pro
   const [paramData, setParamData] = React.useState<Record<string, Record<string, unknown>>>({});
   const [nodeVersions, setNodeVersions] = React.useState<Record<string, string>>({});
   const [gpuStatus, setGpuStatus] = React.useState<{ present: boolean; enabled: boolean } | null>(null);
+  // 每个 step 失败时的日志路径 (由 runner StepFailed 事件带过来)。用于 UI 里"打开日志"按钮。
+  const [stepLogPaths, setStepLogPaths] = React.useState<Record<string, string>>({});
 
   React.useEffect(() => {
-    api.listWorkflows().then(setWorkflows).catch(() => {});
+    api.listWorkflows()
+      .then((all) => setWorkflows(all.filter((w) => VISIBLE_WORKFLOW_IDS.has(w.id))))
+      .catch(() => {});
   }, []);
 
   // Pre-fill input path from current session whenever session OR selected workflow
@@ -75,7 +90,14 @@ export function RunView({ onCrumbChange, currentSession, onRequestSession }: Pro
     switch (ev.type) {
       case "step_start":    setStepStates((s) => ({ ...s, [ev.step!]: "running" })); break;
       case "step_complete": setStepStates((s) => ({ ...s, [ev.step!]: "done" }));    break;
-      case "step_failed":   setStepStates((s) => ({ ...s, [ev.step!]: "failed" }));  break;
+      case "step_failed":
+        setStepStates((s) => ({ ...s, [ev.step!]: "failed" }));
+        if (ev.log_path && ev.step) {
+          const p = ev.log_path;
+          setStepLogPaths((m) => ({ ...m, [ev.step!]: p }));
+          toast.error(`${ev.step} 失败\n日志：${p}`);
+        }
+        break;
       case "job_complete":  setRunning(false); break;
       case "job_failed":    setRunning(false); break;
     }
@@ -87,6 +109,7 @@ export function RunView({ onCrumbChange, currentSession, onRequestSession }: Pro
     setInputPath(pickInputFromSession(currentSession, wf.input));
     setJobId(null);
     setStepStates({});
+    setStepLogPaths({});
     onCrumbChange?.(wf.name + " › 配置与执行");
 
     const data: Record<string, Record<string, unknown>> = {};
@@ -371,11 +394,34 @@ export function RunView({ onCrumbChange, currentSession, onRequestSession }: Pro
                 const state = stepStates[node.id] ?? "pending";
                 const stateLabel = { pending: "等待", running: "运行中", done: "完成", failed: "失败" }[state];
                 const stateColor = { pending: "#c2c2c2", running: "#199a3e", done: "#199a3e", failed: "#cf3a3f" }[state];
+                const logPath = stepLogPaths[node.id];
                 return (
                   <div key={node.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 10px", background: "#f7f7f7", borderRadius: 4 }}>
                     <span className={`hs-dot ${state}`} />
                     <span style={{ fontSize: 12.5, fontFamily: "'IBM Plex Mono', monospace" }}>{node.id}</span>
                     <span style={{ marginLeft: "auto", fontSize: 11.5, color: stateColor }}>{stateLabel}</span>
+                    {state === "failed" && logPath && (
+                      <>
+                        <button
+                          className="hs-btn hs-btn-ghost"
+                          style={{ fontSize: 11, padding: "2px 8px" }}
+                          onClick={() => api.openPath(logPath).catch(() => toast.error("无法打开日志文件"))}
+                          title={logPath}
+                        >
+                          打开日志
+                        </button>
+                        <button
+                          className="hs-btn hs-btn-ghost"
+                          style={{ fontSize: 11, padding: "2px 8px" }}
+                          onClick={() => {
+                            navigator.clipboard.writeText(logPath).then(() => toast.success("已复制路径"));
+                          }}
+                          title={logPath}
+                        >
+                          复制路径
+                        </button>
+                      </>
+                    )}
                   </div>
                 );
               })}

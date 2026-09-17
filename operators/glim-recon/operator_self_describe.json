@@ -60,9 +60,9 @@
         "items": { "type": "number" },
         "minItems": 7,
         "maxItems": 7,
-        "default": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0],
+        "default": [-0.011, -0.02329, 0.04412, 0.0, 0.0, 0.0, 1.0],
         "title": "激光-IMU 外参 (TUM: x y z qx qy qz qw)",
-        "description": "Mid-360 同轴安装默认 identity"
+        "description": "Livox Mid360 出厂固定值（IMU 相对 LiDAR 光心的机械偏移，与外部安装角无关）"
       },
       "mounting_rpy": {
         "type": "array",
