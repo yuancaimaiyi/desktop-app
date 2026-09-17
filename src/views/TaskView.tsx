@@ -1,6 +1,6 @@
 import React from "react";
-import { Select, Tooltip } from "antd";
-import { api, Job, Artifact, dirname } from "../api";
+import { Modal, Select, Tooltip } from "antd";
+import { api, Job, Artifact, StepLogInfo, dirname } from "../api";
 
 const STATUS_INFO: Record<string, { cls: string; label: string; dot: string }> = {
   success:   { cls: "hs-tag-green",  label: "成功",  dot: "#199a3e" },
@@ -9,11 +9,16 @@ const STATUS_INFO: Record<string, { cls: string; label: string; dot: string }> =
   cancelled: { cls: "hs-tag-amber",  label: "已取消", dot: "#b7791f" },
 };
 
+type RightTab = "artifacts" | "logs";
+
 export function TaskView() {
   const [jobs, setJobs] = React.useState<Job[]>([]);
   const [selectedJobId, setSelectedJobId] = React.useState<string | null>(null);
   const [artifacts, setArtifacts] = React.useState<Artifact[]>([]);
+  const [stepLogs, setStepLogs] = React.useState<StepLogInfo[]>([]);
   const [statusFilter, setStatusFilter] = React.useState<string | null>(null);
+  const [rightTab, setRightTab] = React.useState<RightTab>("artifacts");
+  const [logModal, setLogModal] = React.useState<{ step: string; path: string; text: string } | null>(null);
 
   React.useEffect(() => { load(); }, []);
 
@@ -29,15 +34,41 @@ export function TaskView() {
     const data = await api.listJobs().catch(() => [] as Job[]);
     setJobs(data);
     if (selectedJobId) {
-      const arts = await api.jobArtifacts(selectedJobId).catch(() => [] as Artifact[]);
+      const [arts, logs] = await Promise.all([
+        api.jobArtifacts(selectedJobId).catch(() => [] as Artifact[]),
+        api.jobStepLogs(selectedJobId).catch(() => [] as StepLogInfo[]),
+      ]);
       setArtifacts(arts);
+      setStepLogs(logs);
     }
   }
 
   async function selectJob(id: string) {
     setSelectedJobId(id);
-    const arts = await api.jobArtifacts(id).catch(() => [] as Artifact[]);
+    const [arts, logs] = await Promise.all([
+      api.jobArtifacts(id).catch(() => [] as Artifact[]),
+      api.jobStepLogs(id).catch(() => [] as StepLogInfo[]),
+    ]);
     setArtifacts(arts);
+    setStepLogs(logs);
+    // 失败任务默认切到日志 tab（快速定位错因）
+    const st = jobs.find((j) => j.id === id)?.status;
+    setRightTab(st === "failed" && logs.some((l) => l.exists) ? "logs" : "artifacts");
+  }
+
+  async function openLogModal(step: string, path: string) {
+    try {
+      const text = await api.readLogTail(path);
+      setLogModal({ step, path, text });
+    } catch (e) {
+      setLogModal({ step, path, text: `无法读取日志：${e}` });
+    }
+  }
+
+  function humanBytes(n: number): string {
+    if (n < 1024) return `${n} B`;
+    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KiB`;
+    return `${(n / 1024 / 1024).toFixed(2)} MiB`;
   }
 
   const displayJobs = statusFilter ? jobs.filter((j) => j.status === statusFilter) : jobs;
@@ -113,61 +144,179 @@ export function TaskView() {
             </div>
           ) : (
             <>
-              <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 12 }}>
-                {selectedJob?.workflow_id ?? ""} — 产物
-              </div>
-              <table className="hs-table">
-                <thead>
-                  <tr>
-                    <th>步骤</th>
-                    <th>输出</th>
-                    <th>路径</th>
-                    <th style={{ width: 150 }}>操作</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {artifacts.length === 0 ? (
-                    <tr>
-                      <td colSpan={4} style={{ padding: "24px 8px", textAlign: "center", color: "#9a9a9a", fontSize: 12 }}>
-                        暂无产物（任务可能仍在运行）
-                      </td>
-                    </tr>
-                  ) : artifacts.map((a) => {
-                    const isDir = !/\.[^/\\]+$/.test(a.host_path);
-                    const dirPath = isDir ? a.host_path : dirname(a.host_path);
-                    const isViewable = /\.(ply|pcd|bag|db3)$/i.test(a.host_path);
+              <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
+                <div style={{ fontWeight: 600, fontSize: 13 }}>
+                  {selectedJob?.workflow_id ?? ""}
+                </div>
+                {/* Tab bar */}
+                <div style={{ display: "flex", gap: 4, marginLeft: "auto" }}>
+                  {(["artifacts", "logs"] as RightTab[]).map((t) => {
+                    const isActive = rightTab === t;
+                    const label = t === "artifacts" ? `产物 (${artifacts.length})` :
+                                  `日志 (${stepLogs.filter((l) => l.exists).length})`;
                     return (
-                      <tr key={a.id}>
-                        <td style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 12 }}>{a.step}</td>
-                        <td style={{ color: "#555", fontSize: 12 }}>{a.output_id}</td>
+                      <button
+                        key={t}
+                        onClick={() => setRightTab(t)}
+                        className="hs-btn hs-btn-sm"
+                        style={{
+                          background: isActive ? "#199a3e" : "transparent",
+                          color: isActive ? "#fff" : "#555",
+                          borderColor: isActive ? "#199a3e" : "#d0d0d0",
+                        }}
+                      >
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {rightTab === "artifacts" && (
+                <table className="hs-table">
+                  <thead>
+                    <tr>
+                      <th>步骤</th>
+                      <th>输出</th>
+                      <th>路径</th>
+                      <th style={{ width: 150 }}>操作</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {artifacts.length === 0 ? (
+                      <tr>
+                        <td colSpan={4} style={{ padding: "24px 8px", textAlign: "center", color: "#9a9a9a", fontSize: 12 }}>
+                          暂无产物（任务可能失败或仍在运行；见「日志」）
+                        </td>
+                      </tr>
+                    ) : artifacts.map((a) => {
+                      const isDir = !/\.[^/\\]+$/.test(a.host_path);
+                      const dirPath = isDir ? a.host_path : dirname(a.host_path);
+                      const isViewable = /\.(ply|pcd|bag|db3)$/i.test(a.host_path);
+                      return (
+                        <tr key={a.id}>
+                          <td style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 12 }}>{a.step}</td>
+                          <td style={{ color: "#555", fontSize: 12 }}>{a.output_id}</td>
+                          <td>
+                            <Tooltip title={a.host_path} placement="topLeft">
+                              <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: "#666" }}>
+                                {a.host_path}
+                              </span>
+                            </Tooltip>
+                          </td>
+                          <td>
+                            <div style={{ display: "flex", gap: 5 }}>
+                              <button className="hs-btn hs-btn-sm" onClick={() => api.openPath(dirPath)}>
+                                文件管理器
+                              </button>
+                              {isViewable && (
+                                <button className="hs-btn hs-btn-sm" onClick={() => api.openPath(a.host_path)}>
+                                  查看
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+
+              {rightTab === "logs" && (
+                <table className="hs-table">
+                  <thead>
+                    <tr>
+                      <th>步骤</th>
+                      <th>大小</th>
+                      <th>路径</th>
+                      <th style={{ width: 220 }}>操作</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {stepLogs.length === 0 ? (
+                      <tr>
+                        <td colSpan={4} style={{ padding: "24px 8px", textAlign: "center", color: "#9a9a9a", fontSize: 12 }}>
+                          暂无日志目录（任务未真正启动、或运行前失败）
+                        </td>
+                      </tr>
+                    ) : stepLogs.map((l) => (
+                      <tr key={l.step}>
+                        <td style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 12 }}>{l.step}</td>
+                        <td style={{ color: "#555", fontSize: 12 }}>
+                          {l.exists ? humanBytes(l.size_bytes) : <span style={{ color: "#bbb" }}>无</span>}
+                        </td>
                         <td>
-                          <Tooltip title={a.host_path} placement="topLeft">
+                          <Tooltip title={l.log_path} placement="topLeft">
                             <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: "#666" }}>
-                              {a.host_path}
+                              {l.log_path}
                             </span>
                           </Tooltip>
                         </td>
                         <td>
                           <div style={{ display: "flex", gap: 5 }}>
-                            <button className="hs-btn hs-btn-sm" onClick={() => api.openPath(dirPath)}>
+                            <button
+                              className="hs-btn hs-btn-sm"
+                              disabled={!l.exists}
+                              onClick={() => api.openPath(dirname(l.log_path))}
+                            >
                               文件管理器
                             </button>
-                            {isViewable && (
-                              <button className="hs-btn hs-btn-sm" onClick={() => api.openPath(a.host_path)}>
-                                查看
-                              </button>
-                            )}
+                            <button
+                              className="hs-btn hs-btn-sm"
+                              disabled={!l.exists}
+                              onClick={() => api.openPath(l.log_path)}
+                            >
+                              外部打开
+                            </button>
+                            <button
+                              className="hs-btn hs-btn-sm"
+                              disabled={!l.exists}
+                              onClick={() => openLogModal(l.step, l.log_path)}
+                            >
+                              内嵌查看
+                            </button>
                           </div>
                         </td>
                       </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                    ))}
+                  </tbody>
+                </table>
+              )}
             </>
           )}
         </div>
       </div>
+
+      <Modal
+        open={!!logModal}
+        title={logModal ? `${logModal.step} — step.log` : ""}
+        onCancel={() => setLogModal(null)}
+        footer={null}
+        width={960}
+        destroyOnClose
+      >
+        {logModal && (
+          <>
+            <div style={{ fontSize: 11, color: "#888", marginBottom: 6, fontFamily: "'IBM Plex Mono', monospace" }}>
+              {logModal.path}
+              <span style={{ marginLeft: 12, color: "#bbb" }}>（大文件仅显示末尾 512 KiB；完整内容请用「外部打开」）</span>
+            </div>
+            <pre
+              style={{
+                background: "#1e1e1e", color: "#e2e4ef",
+                padding: 12, borderRadius: 4,
+                maxHeight: 520, overflow: "auto",
+                fontSize: 11.5, fontFamily: "'IBM Plex Mono', monospace",
+                whiteSpace: "pre-wrap", wordBreak: "break-all",
+                margin: 0,
+              }}
+            >
+              {logModal.text || "(空)"}
+            </pre>
+          </>
+        )}
+      </Modal>
     </div>
   );
 }

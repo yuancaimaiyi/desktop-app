@@ -294,6 +294,79 @@ pub fn job_artifacts(job_id: String, state: State<AppState>) -> Result<Vec<Artif
         .map_err(|e| e.to_string())
 }
 
+#[derive(serde::Serialize)]
+pub struct StepLogInfo {
+    pub step: String,
+    pub log_path: String,
+    pub exists: bool,
+    pub size_bytes: u64,
+}
+
+/// 枚举一个 job 下每个 step 的 step.log。
+/// 路径约定：<output_dir>/<job_id>/<step_id>/step.log（见 runner/dag.rs）
+/// 无论成功/失败都会返回：成功场景下也能回看 step 的完整日志。
+#[tauri::command]
+pub fn job_step_logs(job_id: String, state: State<AppState>) -> Result<Vec<StepLogInfo>, String> {
+    let output_dir = state.config.lock().unwrap().output_dir();
+    let job_dir = output_dir.join(&job_id);
+    if !job_dir.is_dir() {
+        return Ok(Vec::new());
+    }
+    let mut out = Vec::new();
+    let entries = std::fs::read_dir(&job_dir).map_err(|e| e.to_string())?;
+    for e in entries.flatten() {
+        let p = e.path();
+        if !p.is_dir() {
+            continue;
+        }
+        let step_id = match p.file_name().and_then(|n| n.to_str()) {
+            Some(n) => n.to_string(),
+            None => continue,
+        };
+        let log_path = p.join("step.log");
+        let (exists, size) = match std::fs::metadata(&log_path) {
+            Ok(m) => (true, m.len()),
+            Err(_) => (false, 0),
+        };
+        out.push(StepLogInfo {
+            step: step_id,
+            log_path: log_path.to_string_lossy().to_string(),
+            exists,
+            size_bytes: size,
+        });
+    }
+    // 按 step 名排序，UI 稳定
+    out.sort_by(|a, b| a.step.cmp(&b.step));
+    Ok(out)
+}
+
+/// 读一个日志文件的最后 N 字节（默认 512 KiB）。
+/// 大日志防 OOM——UI 用于内嵌预览；「打开日志」按钮走 openPath 用外部编辑器看全文。
+#[tauri::command]
+pub fn read_log_tail(path: String, max_bytes: Option<u64>) -> Result<String, String> {
+    use std::io::{Read, Seek, SeekFrom};
+    let cap = max_bytes.unwrap_or(512 * 1024);
+    let mut f = std::fs::File::open(&path).map_err(|e| e.to_string())?;
+    let len = f.metadata().map_err(|e| e.to_string())?.len();
+    let start = len.saturating_sub(cap);
+    if start > 0 {
+        f.seek(SeekFrom::Start(start)).map_err(|e| e.to_string())?;
+    }
+    let mut buf = Vec::with_capacity((len - start) as usize);
+    f.read_to_end(&mut buf).map_err(|e| e.to_string())?;
+    // 从截断处的第一个换行后开始，避免半行乱码
+    let s = String::from_utf8_lossy(&buf).to_string();
+    let s = if start > 0 {
+        match s.find('\n') {
+            Some(i) => s[i + 1..].to_string(),
+            None => s,
+        }
+    } else {
+        s
+    };
+    Ok(s)
+}
+
 /// Find the newest reusable panorama job for the exact same input path.
 /// A cache hit is accepted only when the job succeeded, both the stitched
 /// video and extracted frame still exist and are non-empty, and the source

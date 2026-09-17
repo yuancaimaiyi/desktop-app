@@ -79,6 +79,8 @@ pub fn run() {
             commands::cancel_job,
             commands::list_jobs,
             commands::job_artifacts,
+            commands::job_step_logs,
+            commands::read_log_tail,
             commands::find_reusable_panorama,
             commands::open_path,
             commands::resolve_tool,

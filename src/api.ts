@@ -94,6 +94,13 @@ export interface Artifact {
   host_path: string;
 }
 
+export interface StepLogInfo {
+  step: string;
+  log_path: string;
+  exists: boolean;
+  size_bytes: number;
+}
+
 export interface WorkflowSummary {
   id: string;
   name: string;
@@ -525,6 +532,9 @@ export const api = {
   cancelJob: (jobId: string) => invoke<void>("cancel_job", { jobId }),
   listJobs: () => invoke<Job[]>("list_jobs"),
   jobArtifacts: (jobId: string) => invoke<Artifact[]>("job_artifacts", { jobId }),
+  jobStepLogs: (jobId: string) => invoke<StepLogInfo[]>("job_step_logs", { jobId }),
+  readLogTail: (path: string, maxBytes?: number) =>
+    invoke<string>("read_log_tail", { path, maxBytes: maxBytes ?? null }),
   findReusablePanorama: (inputPath: string) => invoke<Artifact[] | null>("find_reusable_panorama", { inputPath }),
   openPath: (path: string) => invoke<void>("open_path", { path }),
   getConfig: () => invoke<AppConfig>("get_config"),
