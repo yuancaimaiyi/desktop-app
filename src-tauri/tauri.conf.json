@@ -53,7 +53,14 @@
         "open": true
       },
       "window": {
-        "setFullscreen": true
+        "setFullscreen": true,
+        "minimize": true,
+        "unminimize": true,
+        "maximize": true,
+        "unmaximize": true,
+        "close": true,
+        "hide": true,
+        "show": true
       }
     }
   }
