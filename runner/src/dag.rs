@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use tokio::sync::mpsc;
-use uuid::Uuid;
 
 use crate::config::AppConfig;
 use crate::container::{ContainerRuntime, MountArg};
@@ -10,6 +9,26 @@ use crate::injector::StepContext;
 use crate::manifest::{GpuMode, IoType, Operator};
 use crate::registry::Registry;
 use crate::workflow::{Workflow, WorkflowNode};
+
+/// 生成一个时间戳形式的 job_id，供 `hera-output/<job_id>/` 目录命名 + registry.jobs 主键使用。
+/// 格式：`YYYYMMDD-HHMMSS-fff-<workflow_id>`（本地时间 + 毫秒 + 工作流 slug）
+///  - 时间戳前缀让 file manager 里天然按时间排序
+///  - workflow_id 后缀让人一眼看出这是哪个流程
+///  - 毫秒级已足够避免正常使用下的目录冲突；若真撞到同毫秒的重跑，末尾再挂一个 4 位随机
+///
+/// 注意：workflow_id 里出现的 `/` `\` 会替换成 `_`，防止穿目录。
+pub fn make_job_id(workflow_id: &str) -> String {
+    use chrono::Local;
+    let stamp = Local::now().format("%Y%m%d-%H%M%S-%3f").to_string();
+    let slug: String = workflow_id
+        .chars()
+        .map(|c| match c {
+            '/' | '\\' | ':' | ' ' | '\t' | '\n' => '_',
+            _ => c,
+        })
+        .collect();
+    format!("{stamp}-{slug}")
+}
 
 #[derive(Debug, Clone)]
 pub enum JobEvent {
@@ -38,10 +57,11 @@ pub struct JobRunner {
 }
 
 impl JobRunner {
-    pub fn new(config: AppConfig, operators_dir: impl Into<PathBuf>) -> Self {
+    /// `workflow_id` 用来给 job_id 添加人类可读后缀（见 make_job_id）。
+    pub fn new(config: AppConfig, operators_dir: impl Into<PathBuf>, workflow_id: &str) -> Self {
         let runtime = ContainerRuntime::new(&config.runtime.container, config.runtime.gpu_enabled);
         Self {
-            job_id: Uuid::new_v4().to_string(),
+            job_id: make_job_id(workflow_id),
             config,
             runtime,
             operators_dir: operators_dir.into(),

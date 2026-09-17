@@ -170,7 +170,7 @@ pub async fn run_workflow(
     let config = state.config.lock().unwrap().clone();
     let operators_dir = state.operators_dir.clone();
 
-    let runner = JobRunner::new(config.clone(), operators_dir);
+    let runner = JobRunner::new(config.clone(), operators_dir, &workflow_id);
     let job_id = runner.job_id.clone();
 
     {

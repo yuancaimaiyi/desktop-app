@@ -179,7 +179,7 @@ async fn cmd_run(
     }
 
     let db = Registry::open(Path::new(&config.registry.db_path))?;
-    let runner = JobRunner::new(config.clone(), operators_dir);
+    let runner = JobRunner::new(config.clone(), operators_dir, &workflow.id);
     let job_id = runner.job_id.clone();
 
     db.start_job(
