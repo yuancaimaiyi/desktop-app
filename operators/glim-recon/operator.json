@@ -71,8 +71,8 @@
         "minItems": 3,
         "maxItems": 3,
         "default": [0.0, 0.0, 0.0],
-        "title": "IMU 附加旋转 RPY (度, ZYX)",
-        "description": "**几乎不用改**。只在 IMU 相对 LiDAR 光心有额外旋转（自制传感器组、IMU 单独反装）时才填。Livox Mid360 一体机 IMU 与 LiDAR 已同轴对齐，即使整机在头盔上倾斜/倒装也保持 [0,0,0]；载体安装角由 GLIM 启动时 IMU 重力估计自动处理。"
+        "title": "安装角 RPY (度, ZYX)",
+        "description": "正置=[0,0,0]；倒置 pitch180=[0,180,0]"
       },
       "imu_acc_noise": {
         "type": "number",
