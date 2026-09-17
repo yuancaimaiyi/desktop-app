@@ -71,14 +71,32 @@
         "minItems": 3,
         "maxItems": 3,
         "default": [0.0, 0.0, 0.0],
-        "title": "安装角 RPY (度, ZYX)",
-        "description": "正置=[0,0,0]；倒置 pitch180=[0,180,0]"
+        "title": "IMU 附加旋转 RPY (度, ZYX)",
+        "description": "**几乎不用改**。只在 IMU 相对 LiDAR 光心有额外旋转（自制传感器组、IMU 单独反装）时才填。Livox Mid360 一体机 IMU 与 LiDAR 已同轴对齐，即使整机在头盔上倾斜/倒装也保持 [0,0,0]；载体安装角由 GLIM 启动时 IMU 重力估计自动处理。"
       },
       "imu_acc_noise": {
         "type": "number",
         "default": 0.05,
         "title": "IMU 加速度噪声",
-        "description": "调高可降低 IMU 权重；倒置或 IMU 预测差时可尝试 0.5~1.0"
+        "description": "值越小越信 IMU。长走廊/LiDAR 退化场景可尝试 0.02；IMU 明显不准可尝试 0.1"
+      },
+      "imu_gyro_noise": {
+        "type": "number",
+        "default": 0.01,
+        "title": "IMU 陀螺噪声",
+        "description": "值越小越信陀螺。快速转头/退化场景可尝试 0.005；抖动大可尝试 0.02"
+      },
+      "init_window_size": {
+        "type": "number",
+        "default": 3.0,
+        "title": "初始化时间窗(秒)",
+        "description": "启动时用几秒 IMU 数据估重力方向。开录前扶稳静止 ≥ 此值。窗内不静止 → world z 会偏 → 轨迹翘。推荐 5.0"
+      },
+      "smoother_lag": {
+        "type": "number",
+        "default": 5.0,
+        "title": "iSAM2 平滑回溯(秒)",
+        "description": "闭环触发时能反向修正多远的历史 pose。闭环大回路场景推荐 8~15。"
       },
       "keyframe_strategy": {
         "type": "string",
@@ -91,7 +109,19 @@
         "type": "number",
         "default": 1.0,
         "title": "关键帧间距(m)",
-        "description": "DISPLACEMENT 策略下创建新关键帧所需的最小位移（米）"
+        "description": "越小越密。长走廊建议 0.5，DISPLACEMENT 策略下必生效"
+      },
+      "keyframe_max_num": {
+        "type": "integer",
+        "default": 15,
+        "title": "submap 最大关键帧数",
+        "description": "submap 里能塞的关键帧上限。长走廊 / 大房间建议 25~30"
+      },
+      "loop_overlap_min": {
+        "type": "number",
+        "default": 0.2,
+        "title": "闭环最小 overlap",
+        "description": "两个 submap overlap ≥ 此值才判闭环。回环触发困难可降到 0.15；误闭环多可升到 0.3"
       }
     }
   },
@@ -132,6 +162,21 @@
       "file": "config_sensors.json",
       "jsonpath": "$.sensors.imu_acc_noise"
     },
+    "imu_gyro_noise": {
+      "mode": "config_patch",
+      "file": "config_sensors.json",
+      "jsonpath": "$.sensors.imu_gyro_noise"
+    },
+    "init_window_size": {
+      "mode": "config_patch",
+      "file": "config_odometry_cpu.json",
+      "jsonpath": "$.odometry_estimation.initialization_window_size"
+    },
+    "smoother_lag": {
+      "mode": "config_patch",
+      "file": "config_odometry_cpu.json",
+      "jsonpath": "$.odometry_estimation.smoother_lag"
+    },
     "keyframe_strategy": {
       "mode": "config_patch",
       "file": "config_sub_mapping_cpu.json",
@@ -141,102 +186,20 @@
       "mode": "config_patch",
       "file": "config_sub_mapping_cpu.json",
       "jsonpath": "$.sub_mapping.keyframe_update_interval_trans"
+    },
+    "keyframe_max_num": {
+      "mode": "config_patch",
+      "file": "config_sub_mapping_cpu.json",
+      "jsonpath": "$.sub_mapping.max_num_keyframes"
+    },
+    "loop_overlap_min": {
+      "mode": "config_patch",
+      "file": "config_global_mapping_cpu.json",
+      "jsonpath": "$.global_mapping.min_implicit_loop_overlap"
     }
   },
-  "params": [
-    {
-      "id": "window",
-      "type": "number",
-      "default": 0.1,
-      "label": "时间窗口(秒)",
-      "inject": { "mode": "arg", "flag": "--window" }
-    },
-    {
-      "id": "mode",
-      "type": "enum",
-      "values": ["cpu", "gpu"],
-      "default": "cpu",
-      "label": "计算模式",
-      "inject": {
-        "mode": "config_switch_suffix",
-        "file": "config.json",
-        "parent": "global",
-        "keys": ["config_odometry", "config_sub_mapping", "config_global_mapping"]
-      }
-    },
-    {
-      "id": "imu_topic",
-      "type": "string",
-      "default": "/lidar/mid360/imu",
-      "label": "IMU Topic",
-      "description": "仅 .db3 输入时使用",
-      "inject": { "mode": "arg", "flag": "--imu-topic", "condition": "input_ext=.db3" }
-    },
-    {
-      "id": "points_topic",
-      "type": "string",
-      "default": "/lidar/mid360/point_cloud2",
-      "label": "点云 Topic",
-      "description": "仅 .db3 输入时使用",
-      "inject": { "mode": "arg", "flag": "--points-topic", "condition": "input_ext=.db3" }
-    },
-    {
-      "id": "t_lidar_imu",
-      "type": "string",
-      "default": [-0.011, -0.02329, 0.04412, 0.0, 0.0, 0.0, 1.0],
-      "label": "激光-IMU 外参 (TUM: x y z qx qy qz qw)",
-      "inject": {
-        "mode": "config_patch",
-        "file": "config_sensors.json",
-        "jsonpath": "$.sensors.T_lidar_imu"
-      }
-    },
-    {
-      "id": "mounting_rpy",
-      "type": "number[3]",
-      "default": [0.0, 0.0, 0.0],
-      "label": "安装角 RPY (度, ZYX)",
-      "inject": {
-        "mode": "config_rpy_patch",
-        "file": "config_sensors.json",
-        "t_field": "$.sensors.T_lidar_imu",
-        "rpy_field": "$.sensors.lidar_mounting_rpy"
-      }
-    },
-    {
-      "id": "imu_acc_noise",
-      "type": "number",
-      "default": 0.05,
-      "label": "IMU 加速度噪声",
-      "inject": {
-        "mode": "config_patch",
-        "file": "config_sensors.json",
-        "jsonpath": "$.sensors.imu_acc_noise"
-      }
-    },
-    {
-      "id": "keyframe_strategy",
-      "type": "string",
-      "default": "OVERLAP",
-      "label": "关键帧策略",
-      "inject": {
-        "mode": "config_patch",
-        "file": "config_sub_mapping_cpu.json",
-        "jsonpath": "$.sub_mapping.keyframe_update_strategy"
-      }
-    },
-    {
-      "id": "keyframe_interval_trans",
-      "type": "number",
-      "default": 1.0,
-      "label": "关键帧间距(m)",
-      "inject": {
-        "mode": "config_patch",
-        "file": "config_sub_mapping_cpu.json",
-        "jsonpath": "$.sub_mapping.keyframe_update_interval_trans"
-      }
-    }
-  ],
+  "//_params_note": "manual `params` array 已删——runner/manifest.rs::synthesize_params 会自动从 params_schema+params_bindings 派生 Vec<Param>。想加参数只改上面两处即可，不需要再手工同步这里。",
+  "params": [],
   "exit_codes_ok": [0, 139],
   "command": "glim_offline {in:scan} -c /glim/config -o {out:map} --window {param:window} {?db3:--imu-topic {param:imu_topic} --points-topic {param:points_topic}}"
 }
