@@ -99,38 +99,33 @@ pub fn get_workflow(id: String, state: State<AppState>) -> Result<serde_json::Va
 
         let pinned_version = node.version.clone().unwrap_or_else(|| "latest".to_string());
 
-        // Resolve params_schema from registry (preferred) or file fallback
+        // Resolve params_schema: 磁盘 operator.json 优先（可编辑字段的唯一权威源），
+        // registry 只作为回落——registry 里保存的 manifest 是注册时刻从 docker --describe
+        // 抓的快照，不会随源代码更新；开发时改 operator.json 想立刻在 UI 生效必须走磁盘。
+        // 这一逻辑与 dag.rs::load_operator_for_step 一致。
         let (params_schema, param_schema_legacy, gpu) = {
-            let from_registry = reg
-                .resolve_operator(&node.operator, &pinned_version)
+            let op_path = state.operators_dir.join(&node.operator).join("operator.json");
+            let disk_manifest: Option<serde_json::Value> = std::fs::read_to_string(&op_path)
                 .ok()
-                .flatten()
-                .and_then(|(manifest_json, ..)| {
-                    serde_json::from_str::<serde_json::Value>(&manifest_json).ok()
-                });
+                .and_then(|s| serde_json::from_str(&s).ok());
 
-            if let Some(manifest) = from_registry {
+            let effective = disk_manifest.clone().or_else(|| {
+                reg.resolve_operator(&node.operator, &pinned_version)
+                    .ok()
+                    .flatten()
+                    .and_then(|(mj, ..)| serde_json::from_str::<serde_json::Value>(&mj).ok())
+            });
+
+            if let Some(manifest) = effective {
                 let schema = manifest.get("params_schema").cloned();
                 let gpu = manifest.get("gpu").and_then(|v| v.as_str()).map(str::to_string);
-                // Also synthesize legacy param_schema array for backwards-compat
-                let legacy = {
-                    let op_path = state.operators_dir.join(&node.operator).join("operator.json");
-                    hera_runner::manifest::Operator::load(&op_path)
-                        .map(|op| serde_json::to_value(&op.params).unwrap_or(serde_json::Value::Null))
-                        .unwrap_or(serde_json::Value::Null)
-                };
-                (schema, legacy, gpu)
-            } else {
-                let op_path = state.operators_dir.join(&node.operator).join("operator.json");
-                let op_loaded = hera_runner::manifest::Operator::load(&op_path).ok();
-                let legacy = op_loaded
-                    .as_ref()
+                // 老版 UI 兼容：param_schema 数组
+                let legacy = hera_runner::manifest::Operator::load(&op_path)
                     .map(|op| serde_json::to_value(&op.params).unwrap_or(serde_json::Value::Null))
                     .unwrap_or(serde_json::Value::Null);
-                let gpu = op_loaded
-                    .and_then(|op| serde_json::to_value(&op.gpu).ok())
-                    .and_then(|v| v.as_str().map(str::to_string));
-                (None, legacy, gpu)
+                (schema, legacy, gpu)
+            } else {
+                (None, serde_json::Value::Null, None)
             }
         };
 

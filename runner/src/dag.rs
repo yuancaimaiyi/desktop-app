@@ -360,30 +360,55 @@ fn load_operator_for_step(
 ) -> anyhow::Result<(Operator, String, String, String)> {
     let ver = version.unwrap_or("latest");
 
-    // 1. Try registry lookup
+    // 磁盘 operator.json 是"可编辑字段"（params_schema / params_bindings / gpu / description ...）
+    // 的唯一权威来源；registry 只贡献注册时刻的 image_ref + image_digest（用于 pin 版本）。
+    // 这样开发时改 operator.json → 重启 hera-desktop → 立刻生效，不必 rebuild 镜像+重注册。
+    let disk_path = operators_dir.join(id).join("operator.json");
+    let disk_op = if disk_path.exists() {
+        Operator::load(&disk_path).ok()
+    } else {
+        None
+    };
+
     if let Ok(reg) = Registry::open(Path::new(db_path)) {
         if let Ok(Some((manifest_json, image_ref, image_digest, resolved_ver))) =
             reg.resolve_operator(id, ver)
         {
-            let mut op: Operator = Operator::from_json_str(&manifest_json)
-                .map_err(|e| anyhow::anyhow!("registry manifest parse error for {id}: {e}"))?;
-            // Self-describe manifests omit 'image'; fill from registry
-            if op.image.is_empty() {
-                op.image = image_ref.clone();
-            }
+            let mut op = if let Some(mut d) = disk_op {
+                // 磁盘版覆盖 registry 版；只在磁盘没写 image 时借用 registry 的
+                if d.image.is_empty() {
+                    d.image = image_ref.clone();
+                }
+                d
+            } else {
+                let mut op: Operator = Operator::from_json_str(&manifest_json)
+                    .map_err(|e| anyhow::anyhow!("registry manifest parse error for {id}: {e}"))?;
+                if op.image.is_empty() {
+                    op.image = image_ref.clone();
+                }
+                op
+            };
             tracing::debug!(
-                "Loaded operator {id}@{resolved_ver} from registry (image={image_ref})"
+                "Loaded operator {id}@{resolved_ver} (registry image={image_ref}, disk_overlay={})",
+                disk_path.exists()
             );
+            // 强制返回 registry 里 pin 的 image_ref / digest / version，
+            // 保证运行时用的是注册时锁定的那个镜像。
+            op.image = image_ref.clone();
             return Ok((op, image_ref, image_digest, resolved_ver));
         }
     }
 
-    // 2. Fallback: operators/<id>/operator.json (external file, has 'image' field)
-    let path = operators_dir.join(id).join("operator.json");
-    let op = Operator::load(&path)?;
+    // Registry 里没有 → 只吃磁盘
+    let op = disk_op.ok_or_else(|| {
+        anyhow::anyhow!(
+            "operator {id} not in registry and no disk manifest at {}",
+            disk_path.display()
+        )
+    })?;
     let image_ref = op.image.clone();
     let version_str = op.version.clone();
-    tracing::debug!("Loaded operator {id} from file (image={image_ref})");
+    tracing::debug!("Loaded operator {id} from disk only (image={image_ref})");
     Ok((op, image_ref, "unknown".to_string(), version_str))
 }
 
