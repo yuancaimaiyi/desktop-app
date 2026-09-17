@@ -51,6 +51,9 @@
       },
       "shell": {
         "open": true
+      },
+      "window": {
+        "setFullscreen": true
       }
     }
   }

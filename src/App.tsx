@@ -25,6 +25,31 @@ function ToastProvider() {
 }
 
 /**
+ * F11 切换沉浸式全屏（去标题栏 + 任务栏）。UI 用 flex 布局自适应，不需要手动缩放。
+ * 再按 F11 或 Esc 退出。
+ */
+function useFullscreenToggle() {
+  React.useEffect(() => {
+    const onKey = async (e: KeyboardEvent) => {
+      if (e.key === "F11") {
+        e.preventDefault();
+        const cur = await appWindow.isFullscreen();
+        await appWindow.setFullscreen(!cur);
+      } else if (e.key === "Escape") {
+        // Esc 仅在全屏时退出，不打扰其他 Esc 用途
+        const cur = await appWindow.isFullscreen();
+        if (cur) {
+          e.preventDefault();
+          await appWindow.setFullscreen(false);
+        }
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+}
+
+/**
  * Ubuntu 20.04 (Tauri v1 + WebKitGTK) 下浏览器的 Ctrl+= / Ctrl+- / Ctrl+0 / Ctrl+滚轮 缩放
  * 快捷键不会被 WebKit 自动响应。这里手动接管，用 CSS `zoom` 作用于 document.body。
  * zoom 属性在 WebKit / Chromium 都支持，且不会影响布局逻辑（不像 transform: scale）。
@@ -96,6 +121,7 @@ const VIEW_LABELS: Record<ViewId, string> = {
 
 export function App() {
   useUiZoom();
+  useFullscreenToggle();
   const [view, setView]               = useState<ViewId>("data");
   const [config, setConfig]           = useState<AppConfig | null>(null);
   const [currentSession, setCurrentSession] = useState<HeraSession | null>(null);
@@ -194,6 +220,15 @@ export function App() {
             )}
           </div>
           <div className="hs-winbtns">
+            <button className="hs-winbtn" title="全屏 (F11, Esc 退出)"
+              onClick={async () => {
+                const cur = await appWindow.isFullscreen();
+                await appWindow.setFullscreen(!cur);
+              }}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
+                <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>
+              </svg>
+            </button>
             <button className="hs-winbtn" title="最小化"
               onClick={() => void appWindow.minimize()}>
               <svg width="12" height="12" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.6"><path d="M5 12h14"/></svg>
