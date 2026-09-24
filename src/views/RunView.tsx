@@ -13,6 +13,7 @@ const VISIBLE_WORKFLOW_IDS = new Set<string>([
   "panorama_stitch_gpu",    // 拼接
   "calib_frame_extract",    // 抽帧
   "calib_time_sync",        // 标定（时间同步）
+  "hera_to_bag",            // .hera → ROS2 .db3 bag（回放/调试）
   // "assign_prior_poses",  // 赋位姿 — TODO: 待创建对应 workflow 后放开
 ]);
 
