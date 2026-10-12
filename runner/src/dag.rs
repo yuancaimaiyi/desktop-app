@@ -442,10 +442,28 @@ fn resolve_inputs(
 ) -> anyhow::Result<HashMap<String, String>> {
     let mut inputs: HashMap<String, String> = HashMap::new();
 
-    // Check if this node receives the workflow-level user input
-    if workflow.workflow_input_to.node == node.id {
-        let input_id = &workflow.workflow_input_to.input;
-        inputs.insert(input_id.clone(), user_input_path.to_string_lossy().to_string());
+    // Check if this node receives the workflow-level user input. Multiple
+    // nodes may share the user input (e.g. a 4-step colorize pipeline where
+    // both GLIM recon and panorama stitch consume the same .hera session).
+    for input_to in workflow.workflow_input_to.as_slice() {
+        if input_to.node == node.id {
+            inputs.insert(input_to.input.clone(), user_input_path.to_string_lossy().to_string());
+        }
+    }
+
+    // Convention: any operator input named "session_dir" (Dir type) is auto-wired
+    // to the parent directory of the user-selected scan file. Lets operators
+    // reach session siblings (e.g. <stem>_pano/ output of panorama_to_prior_poses,
+    // T_lidar_camera.txt, sync_offset.txt) without requiring a workflow edge.
+    for inp in &_op.inputs {
+        if inp.id == "session_dir" {
+            let parent = user_input_path
+                .parent()
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_else(|| ".".to_string());
+            inputs.insert(inp.id.clone(), parent);
+            break;
+        }
     }
 
     // Resolve inputs from upstream edges

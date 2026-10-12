@@ -1,0 +1,47 @@
+{
+  "id": "reconstruct_pointcloud_dense",
+  "name": "激光重建出点云 (稠密)",
+  "description": "GLIM 重建时附加 per-scan 原始去畸变点云 dump，再按 traj_lidar.txt 的闭环优化位姿变换到 world 系，voxel 下采后导出稠密 PLY。适合全景上色、细节检查、离线地图。输出文件可能是关键帧版的 100~1000 倍。",
+  "input": {
+    "type": "file",
+    "ext": [".hera", ".db3"],
+    "label": "输入扫描文件"
+  },
+  "nodes": [
+    {
+      "id": "step_recon",
+      "operator": "glim-recon-dense",
+      "version": "r0.22",
+      "params": {
+        "window": 0.1,
+        "mounting_rpy": [0, 0, 0],
+        "mode": "cpu",
+        "imu_topic": "/imu/data",
+        "points_topic": "/livox/lidar",
+        "preprocess_downsample_target": 0,
+        "preprocess_downsample_rate": 1.0,
+        "keyframe_max_num": 15
+      }
+    },
+    {
+      "id": "step_dense",
+      "operator": "glim-dense-cloud",
+      "version": "0.1",
+      "params": {
+        "voxel": 0.02
+      }
+    }
+  ],
+  "edges": [
+    {
+      "from_node": "step_recon",
+      "from_output": "map",
+      "to_node": "step_dense",
+      "to_input": "map"
+    }
+  ],
+  "workflow_input_to": {
+    "node": "step_recon",
+    "input": "scan"
+  }
+}

@@ -36,6 +36,24 @@ pub struct WorkflowInputTo {
     pub input: String,
 }
 
+/// Supports either a single input_to (back-compat) or an array of them.
+/// Serde-level untagged union so both JSON shapes parse to the same enum.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(untagged)]
+pub enum WorkflowInputToSpec {
+    Single(WorkflowInputTo),
+    Many(Vec<WorkflowInputTo>),
+}
+
+impl WorkflowInputToSpec {
+    pub fn as_slice(&self) -> &[WorkflowInputTo] {
+        match self {
+            WorkflowInputToSpec::Single(s) => std::slice::from_ref(s),
+            WorkflowInputToSpec::Many(v) => v.as_slice(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Workflow {
     pub id: String,
@@ -44,7 +62,7 @@ pub struct Workflow {
     pub input: WorkflowInput,
     pub nodes: Vec<WorkflowNode>,
     pub edges: Vec<WorkflowEdge>,
-    pub workflow_input_to: WorkflowInputTo,
+    pub workflow_input_to: WorkflowInputToSpec,
 }
 
 impl Workflow {

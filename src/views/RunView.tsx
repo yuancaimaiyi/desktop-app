@@ -9,12 +9,14 @@ type StepState = "pending" | "running" | "done" | "failed";
 // 赋位姿目前由 /media/yuancaimaiyi/yuancaimaiyi/data/panorama_to_prior_poses.py 单独离线跑，
 // 待接入桌面工作流后把 id 加入本集合。
 const VISIBLE_WORKFLOW_IDS = new Set<string>([
-  "reconstruct_pointcloud", // 激光重建
-  "panorama_stitch_gpu",    // 拼接
-  "calib_frame_extract",    // 抽帧
-  "calib_time_sync",        // 标定（时间同步）
-  "hera_to_bag",            // .hera → ROS2 .db3 bag（回放/调试）
-  // "assign_prior_poses",  // 赋位姿 — TODO: 待创建对应 workflow 后放开
+  "reconstruct_pointcloud",       // 激光重建
+  "reconstruct_pointcloud_dense", // 激光重建 (稠密 per-scan dump)
+  "reconstruct_colored_pointcloud", // 激光重建 (RGB 着色)
+  "panorama_stitch_gpu",          // 拼接
+  "calib_frame_extract",          // 抽帧
+  "calib_time_sync",              // 标定（时间同步）
+  "hera_to_bag",                  // .hera → ROS2 .db3 bag（回放/调试）
+  // "assign_prior_poses",        // 赋位姿 — TODO: 待创建对应 workflow 后放开
 ]);
 
 type SchemaProp = {

@@ -1,0 +1,27 @@
+{
+  "id": "reconstruct_colored_pointcloud",
+  "name": "激光重建点云 RGB 着色",
+  "description": "单步：读取「已跑过的激光重建稠密点云」+「panorama_to_prior_poses.py 产出的 <stem>_pano/」做全景上色。前置步骤：\n1) 先在本软件跑「激光重建出点云 (稠密)」卡片得到 .hera 对应的稠密 raw_frames + traj_lidar\n2) 命令行跑 panorama_to_prior_poses.py --out_dir <stem>_pano （与 .hera 同目录）\n本卡片自动从 .hera 同目录找最新 *_dense/step_recon/map 和 <stem>_pano/，无需手动选路径。",
+  "input": {
+    "type": "file",
+    "ext": [".hera", ".db3"],
+    "label": "输入 .hera（需已跑稠密重建 + 已生成 <stem>_pano/）"
+  },
+  "nodes": [
+    {
+      "id": "step_colorize",
+      "operator": "panorama-colorize",
+      "version": "0.1",
+      "params": {
+        "voxel": 0.01,
+        "max_depth": 30.0,
+        "lat_cutoff_deg": 10.0
+      }
+    }
+  ],
+  "edges": [],
+  "workflow_input_to": {
+    "node": "step_colorize",
+    "input": "session_dir"
+  }
+}

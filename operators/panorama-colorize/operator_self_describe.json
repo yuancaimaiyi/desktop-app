@@ -1,0 +1,29 @@
+{
+  "spec": "1",
+  "id": "panorama-colorize",
+  "name": "全景上色稠密点云",
+  "version": "0.1",
+  "gpu": "none",
+  "mounts": [],
+  "inputs": [
+    { "id": "map",  "type": "dir", "container": "/input/map" },
+    { "id": "pano", "type": "dir", "container": "/input/pano" }
+  ],
+  "outputs": [
+    { "id": "cloud", "type": "file", "container": "/output/colored_cloud.ply" }
+  ],
+  "params_schema": {
+    "type": "object",
+    "properties": {
+      "voxel":          { "type": "number", "default": 0.02, "title": "voxel (m)" },
+      "max_depth":      { "type": "number", "default": 30.0, "title": "max depth (m)" },
+      "lat_cutoff_deg": { "type": "number", "default": 30.0, "title": "pano pole mask (°)" }
+    }
+  },
+  "params_bindings": {
+    "voxel":          { "mode": "arg", "flag": "" },
+    "max_depth":      { "mode": "arg", "flag": "" },
+    "lat_cutoff_deg": { "mode": "arg", "flag": "" }
+  },
+  "exit_codes_ok": [0]
+}

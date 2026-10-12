@@ -1,0 +1,43 @@
+{
+  "spec": "1",
+  "id": "glim-dense-cloud",
+  "name": "稠密点云拼接",
+  "version": "0.1",
+  "image": "crpi-wzvoh0tsm7bwb22w.cn-shanghai.personal.cr.aliyuncs.com/glim/glim-dense-cloud:0.2",
+  "gpu": "none",
+  "mounts": [],
+  "inputs": [
+    {
+      "id": "map",
+      "type": "dir",
+      "container": "/input/map"
+    }
+  ],
+  "outputs": [
+    {
+      "id": "cloud",
+      "type": "file",
+      "container": "/output/dense_cloud.ply"
+    }
+  ],
+  "params_schema": {
+    "type": "object",
+    "properties": {
+      "voxel": {
+        "type": "number",
+        "default": 0.02,
+        "title": "最终 voxel 下采样 (m)",
+        "description": "将合并后的世界点云按 voxel 下采样控制体积。0 = 不下采。Mid360 噪声量级 2~3 cm, 建议 0.02~0.05。"
+      }
+    }
+  },
+  "params_bindings": {
+    "voxel": {
+      "mode": "arg",
+      "flag": ""
+    }
+  },
+  "params": [],
+  "exit_codes_ok": [0],
+  "command": "/opt/scripts/build_dense_cloud /input/map {out:cloud} {param:voxel}"
+}

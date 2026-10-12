@@ -133,7 +133,10 @@ export interface NodeDetail {
 export interface WorkflowDetail extends WorkflowSummary {
   nodes: NodeDetail[];
   edges: { from_node: string; from_output: string; to_node: string; to_input: string }[];
-  workflow_input_to: { node: string; input: string };
+  // Single ({node,input}) or array for multi-node pipelines sharing user input.
+  workflow_input_to:
+    | { node: string; input: string }
+    | { node: string; input: string }[];
 }
 
 export interface JobEvent {

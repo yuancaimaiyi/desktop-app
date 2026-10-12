@@ -1,0 +1,12 @@
+FROM crpi-wzvoh0tsm7bwb22w.cn-shanghai.personal.cr.aliyuncs.com/glim/glim-runner:r0.5
+
+LABEL org.hera.operator.spec="1"
+LABEL org.hera.operator.id="glim-recon"
+LABEL org.hera.operator.version="r0.5"
+LABEL org.hera.operator.manifest.path="/operator.json"
+
+COPY operator_self_describe.json /operator.json
+COPY entrypoint.sh /hera_entrypoint.sh
+RUN chmod +x /hera_entrypoint.sh
+
+ENTRYPOINT ["/hera_entrypoint.sh"]

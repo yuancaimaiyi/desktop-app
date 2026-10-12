@@ -1,0 +1,147 @@
+{
+  "spec": "1",
+  "id": "glim-recon",
+  "name": "GLIM 激光重建",
+  "version": "r0.5",
+  "gpu": "optional",
+  "mounts": [
+    {
+      "id": "config",
+      "host": "",
+      "container": "/glim/config",
+      "mode": "rw",
+      "image_config_path": "/opt/glim_offline/share/glim/config"
+    }
+  ],
+  "inputs": [
+    {
+      "id": "scan",
+      "type": "file",
+      "ext": [".hera", ".db3"],
+      "container": "/data/input"
+    }
+  ],
+  "outputs": [
+    {
+      "id": "map",
+      "type": "dir",
+      "container": "/output/map"
+    }
+  ],
+  "params_schema": {
+    "type": "object",
+    "properties": {
+      "window": {
+        "type": "number",
+        "default": 0.1,
+        "title": "时间窗口(秒)",
+        "description": "点云积累时间窗口（秒）"
+      },
+      "mode": {
+        "type": "string",
+        "enum": ["cpu", "gpu"],
+        "default": "cpu",
+        "title": "计算模式"
+      },
+      "imu_topic": {
+        "type": "string",
+        "default": "/lidar/mid360/imu",
+        "title": "IMU Topic",
+        "description": "仅 .db3 输入时使用"
+      },
+      "points_topic": {
+        "type": "string",
+        "default": "/lidar/mid360/point_cloud2",
+        "title": "点云 Topic",
+        "description": "仅 .db3 输入时使用"
+      },
+      "t_lidar_imu": {
+        "type": "array",
+        "items": { "type": "number" },
+        "minItems": 7,
+        "maxItems": 7,
+        "default": [-0.011, -0.02329, 0.04412, 0.0, 0.0, 0.0, 1.0],
+        "title": "激光-IMU 外参 (TUM: x y z qx qy qz qw)",
+        "description": "Livox Mid360 出厂固定值（IMU 相对 LiDAR 光心的机械偏移，与外部安装角无关）"
+      },
+      "mounting_rpy": {
+        "type": "array",
+        "items": { "type": "number" },
+        "minItems": 3,
+        "maxItems": 3,
+        "default": [0.0, 0.0, 0.0],
+        "title": "安装角 RPY (度, ZYX)",
+        "description": "正置=[0,0,0]；倒置 pitch180=[0,180,0]"
+      },
+      "imu_acc_noise": {
+        "type": "number",
+        "default": 0.05,
+        "title": "IMU 加速度噪声",
+        "description": "调高可降低 IMU 权重；倒置安装或 IMU 预测差时可尝试 0.5~1.0"
+      },
+      "keyframe_strategy": {
+        "type": "string",
+        "enum": ["OVERLAP", "DISPLACEMENT"],
+        "default": "OVERLAP",
+        "title": "关键帧策略",
+        "description": "DISPLACEMENT 适用于静止/短距场景"
+      },
+      "keyframe_interval_trans": {
+        "type": "number",
+        "default": 1.0,
+        "title": "关键帧间距(m)",
+        "description": "DISPLACEMENT 策略下创建新关键帧所需的最小位移（米）"
+      }
+    }
+  },
+  "params_bindings": {
+    "window": {
+      "mode": "arg",
+      "flag": "--window"
+    },
+    "mode": {
+      "mode": "config_switch_suffix",
+      "file": "config.json",
+      "parent": "global",
+      "keys": ["config_odometry", "config_sub_mapping", "config_global_mapping"]
+    },
+    "imu_topic": {
+      "mode": "arg",
+      "flag": "--imu-topic",
+      "condition": "input_ext=.db3"
+    },
+    "points_topic": {
+      "mode": "arg",
+      "flag": "--points-topic",
+      "condition": "input_ext=.db3"
+    },
+    "t_lidar_imu": {
+      "mode": "config_patch",
+      "file": "config_sensors.json",
+      "jsonpath": "$.sensors.T_lidar_imu"
+    },
+    "mounting_rpy": {
+      "mode": "config_rpy_patch",
+      "file": "config_sensors.json",
+      "t_field": "$.sensors.T_lidar_imu",
+      "rpy_field": "$.sensors.lidar_mounting_rpy"
+    },
+    "imu_acc_noise": {
+      "mode": "config_patch",
+      "file": "config_sensors.json",
+      "jsonpath": "$.sensors.imu_acc_noise"
+    },
+    "keyframe_strategy": {
+      "mode": "config_patch",
+      "file": "config_sub_mapping_cpu.json",
+      "jsonpath": "$.sub_mapping.keyframe_update_strategy"
+    },
+    "keyframe_interval_trans": {
+      "mode": "config_patch",
+      "file": "config_sub_mapping_cpu.json",
+      "jsonpath": "$.sub_mapping.keyframe_update_interval_trans"
+    }
+  },
+  "exit_codes_ok": [0, 139],
+  "command": "glim_offline {in:scan} -c /glim/config -o {out:map} --window {param:window} {?db3:--imu-topic {param:imu_topic} --points-topic {param:points_topic}}"
+}

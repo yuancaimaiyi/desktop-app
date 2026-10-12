@@ -1,0 +1,29 @@
+{
+  "spec": "1",
+  "id": "glim-dense-cloud",
+  "name": "稠密点云拼接",
+  "version": "0.1",
+  "gpu": "none",
+  "mounts": [],
+  "inputs": [
+    { "id": "map", "type": "dir", "container": "/input/map" }
+  ],
+  "outputs": [
+    { "id": "cloud", "type": "file", "container": "/output/dense_cloud.ply" }
+  ],
+  "params_schema": {
+    "type": "object",
+    "properties": {
+      "voxel": {
+        "type": "number",
+        "default": 0.02,
+        "title": "最终 voxel 下采样 (m)",
+        "description": "合并后世界点云的 voxel 下采。0 = 不下采。"
+      }
+    }
+  },
+  "params_bindings": {
+    "voxel": { "mode": "arg", "flag": "--voxel" }
+  },
+  "exit_codes_ok": [0]
+}

@@ -1,0 +1,60 @@
+{
+  "spec": "1",
+  "id": "panorama-prior-pose",
+  "name": "全景抽帧 + 位姿赋值",
+  "version": "0.1",
+  "image": "crpi-wzvoh0tsm7bwb22w.cn-shanghai.personal.cr.aliyuncs.com/glim/panorama-prior-pose:0.1",
+  "gpu": "none",
+  "mounts": [],
+  "inputs": [
+    {
+      "id": "scan",
+      "type": "file",
+      "ext": [".hera"],
+      "container": "/data/session/input.hera",
+      "comment": "Mounts the entire parent directory as /data/session (via file-input semantics), so session.json / sync_offset.txt / T_lidar_camera.txt siblings are visible."
+    },
+    {
+      "id": "panorama",
+      "type": "file",
+      "ext": [".mp4"],
+      "container": "/data/panorama/panorama.mp4"
+    },
+    {
+      "id": "map",
+      "type": "dir",
+      "container": "/data/map"
+    }
+  ],
+  "outputs": [
+    {
+      "id": "pano",
+      "type": "dir",
+      "container": "/output/pano"
+    }
+  ],
+  "params_schema": {
+    "type": "object",
+    "properties": {
+      "target_fps": {
+        "type": "number",
+        "default": 30.0,
+        "title": "抽帧目标帧率 (fps)",
+        "description": "panorama.mp4 抽帧目标帧率。30 fps 等于几乎全抽，适合稠密上色（scan-pano 时间差 <17ms）。低 fps 省磁盘但精度下降。"
+      },
+      "max_frames": {
+        "type": "integer",
+        "default": 0,
+        "title": "最大帧数 (0=不限)",
+        "description": "可选最大帧数上限，与 target_fps 取严。"
+      }
+    }
+  },
+  "params_bindings": {
+    "target_fps": { "mode": "arg", "flag": "--target_fps" },
+    "max_frames": { "mode": "arg", "flag": "--max_frames" }
+  },
+  "params": [],
+  "exit_codes_ok": [0],
+  "command": "/opt/scripts/entry.sh"
+}

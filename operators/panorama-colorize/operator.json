@@ -1,0 +1,54 @@
+{
+  "spec": "1",
+  "id": "panorama-colorize",
+  "name": "全景上色稠密点云",
+  "version": "0.1",
+  "image": "crpi-wzvoh0tsm7bwb22w.cn-shanghai.personal.cr.aliyuncs.com/glim/panorama-colorize:0.1",
+  "gpu": "none",
+  "mounts": [],
+  "inputs": [
+    {
+      "id": "session_dir",
+      "type": "dir",
+      "container": "/input/session"
+    }
+  ],
+  "outputs": [
+    {
+      "id": "cloud",
+      "type": "file",
+      "container": "/output/colored_cloud.ply"
+    }
+  ],
+  "params_schema": {
+    "type": "object",
+    "properties": {
+      "voxel": {
+        "type": "number",
+        "default": 0.02,
+        "title": "最终 voxel 下采样 (m)",
+        "description": "合并后 RGB 云的 voxel 下采（RGB 取 centroid 平均）。0 = 不下采。"
+      },
+      "max_depth": {
+        "type": "number",
+        "default": 30.0,
+        "title": "最大上色距离 (m)",
+        "description": "超过此距离的点不上色跳过（远距离点全景分辨率不够、精度低）。"
+      },
+      "lat_cutoff_deg": {
+        "type": "number",
+        "default": 30.0,
+        "title": "全景极区过滤角 (°)",
+        "description": "过滤 |lat| > (90 − 此值) 的点，避开 Insta 全景底部的 Mid360 本体像素。推荐 30°（覆盖 ~88%，花瓣轻微）；20° 覆盖最多但花瓣明显；45° 最干净但地面空洞多。"
+      }
+    }
+  },
+  "params_bindings": {
+    "voxel":          { "mode": "arg", "flag": "" },
+    "max_depth":      { "mode": "arg", "flag": "" },
+    "lat_cutoff_deg": { "mode": "arg", "flag": "" }
+  },
+  "params": [],
+  "exit_codes_ok": [0],
+  "command": "/opt/scripts/colorize_entry.sh /input/session {out:cloud} {param:voxel} {param:max_depth} {param:lat_cutoff_deg}"
+}

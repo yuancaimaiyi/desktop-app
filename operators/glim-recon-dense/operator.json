@@ -1,0 +1,227 @@
+{
+  "spec": "1",
+  "id": "glim-recon-dense",
+  "name": "GLIM 激光重建 (稠密 dump)",
+  "version": "r0.22",
+  "image": "crpi-wzvoh0tsm7bwb22w.cn-shanghai.personal.cr.aliyuncs.com/glim/glim-runner:r0.22",
+  "gpu": "optional",
+  "mounts": [
+    {
+      "id": "config",
+      "host": "",
+      "container": "/glim/config",
+      "mode": "rw",
+      "image_config_path": "/opt/glim_offline/share/glim/config"
+    }
+  ],
+  "inputs": [
+    {
+      "id": "scan",
+      "type": "file",
+      "ext": [".hera", ".db3"],
+      "container": "/data/input"
+    }
+  ],
+  "outputs": [
+    {
+      "id": "map",
+      "type": "dir",
+      "container": "/output/map"
+    }
+  ],
+  "params_schema": {
+    "type": "object",
+    "properties": {
+      "window": {
+        "type": "number",
+        "default": 0.1,
+        "title": "时间窗口(秒)",
+        "description": "点云积累时间窗口（秒）"
+      },
+      "mode": {
+        "type": "string",
+        "enum": ["cpu", "gpu"],
+        "default": "cpu",
+        "title": "计算模式"
+      },
+      "imu_topic": {
+        "type": "string",
+        "default": "/lidar/mid360/imu",
+        "title": "IMU Topic",
+        "description": "仅 .db3 输入时使用"
+      },
+      "points_topic": {
+        "type": "string",
+        "default": "/lidar/mid360/point_cloud2",
+        "title": "点云 Topic",
+        "description": "仅 .db3 输入时使用"
+      },
+      "t_lidar_imu": {
+        "type": "array",
+        "items": { "type": "number" },
+        "minItems": 7,
+        "maxItems": 7,
+        "default": [-0.011, -0.02329, 0.04412, 0.0, 0.0, 0.0, 1.0],
+        "title": "激光-IMU 外参 (TUM: x y z qx qy qz qw)",
+        "description": "Livox Mid360 出厂固定值（IMU 相对 LiDAR 光心的机械偏移）；与外部安装角无关。用默认 identity 会让 LIO fusion 有 mm~cm 级系统偏差。"
+      },
+      "mounting_rpy": {
+        "type": "array",
+        "items": { "type": "number" },
+        "minItems": 3,
+        "maxItems": 3,
+        "default": [0.0, 0.0, 0.0],
+        "title": "安装角 RPY (度, ZYX)",
+        "description": "正置=[0,0,0]；倒置 pitch180=[0,180,0]"
+      },
+      "imu_acc_noise": {
+        "type": "number",
+        "default": 0.05,
+        "title": "IMU 加速度噪声",
+        "description": "值越小越信 IMU。长走廊/LiDAR 退化场景可尝试 0.02；IMU 明显不准可尝试 0.1"
+      },
+      "imu_gyro_noise": {
+        "type": "number",
+        "default": 0.01,
+        "title": "IMU 陀螺噪声",
+        "description": "值越小越信陀螺。快速转头/退化场景可尝试 0.005；抖动大可尝试 0.02"
+      },
+      "init_window_size": {
+        "type": "number",
+        "default": 3.0,
+        "title": "初始化时间窗(秒)",
+        "description": "启动时用几秒 IMU 数据估重力方向。开录前扶稳静止 ≥ 此值。窗内不静止 → world z 会偏 → 轨迹翘。推荐 5.0"
+      },
+      "smoother_lag": {
+        "type": "number",
+        "default": 5.0,
+        "title": "iSAM2 平滑回溯(秒)",
+        "description": "闭环触发时能反向修正多远的历史 pose。闭环大回路场景推荐 8~15。"
+      },
+      "keyframe_strategy": {
+        "type": "string",
+        "enum": ["OVERLAP", "DISPLACEMENT"],
+        "default": "OVERLAP",
+        "title": "关键帧策略",
+        "description": "DISPLACEMENT 适用于静止/短距场景"
+      },
+      "keyframe_interval_trans": {
+        "type": "number",
+        "default": 1.0,
+        "title": "关键帧间距(m)",
+        "description": "越小越密。长走廊建议 0.5，DISPLACEMENT 策略下必生效"
+      },
+      "keyframe_max_num": {
+        "type": "integer",
+        "default": 15,
+        "title": "submap 最大关键帧数",
+        "description": "submap 里能塞的关键帧上限。长走廊 / 大房间建议 25~30"
+      },
+      "loop_overlap_min": {
+        "type": "number",
+        "default": 0.2,
+        "title": "闭环最小 overlap",
+        "description": "两个 submap overlap ≥ 此值才判闭环。回环触发困难可降到 0.15；误闭环多可升到 0.3"
+      },
+      "preprocess_downsample_target": {
+        "type": "integer",
+        "default": 0,
+        "title": "预处理每帧目标点数 (0=关闭)",
+        "description": "GLIM 默认 10000，Mid360 ~20万 pts/scan 时丢 95%。稠密 dump 推荐 0，让 rate 生效。"
+      },
+      "preprocess_downsample_rate": {
+        "type": "number",
+        "default": 1.0,
+        "title": "预处理每帧采样率",
+        "description": "preprocess_downsample_target=0 时才生效。稠密 dump 推荐 1.0。"
+      }
+    }
+  },
+  "params_bindings": {
+    "window": {
+      "mode": "arg",
+      "flag": "--window"
+    },
+    "mode": {
+      "mode": "config_switch_suffix",
+      "file": "config.json",
+      "parent": "global",
+      "keys": ["config_odometry", "config_sub_mapping", "config_global_mapping"]
+    },
+    "imu_topic": {
+      "mode": "arg",
+      "flag": "--imu-topic",
+      "condition": "input_ext=.db3"
+    },
+    "points_topic": {
+      "mode": "arg",
+      "flag": "--points-topic",
+      "condition": "input_ext=.db3"
+    },
+    "t_lidar_imu": {
+      "mode": "config_patch",
+      "file": "config_sensors.json",
+      "jsonpath": "$.sensors.T_lidar_imu"
+    },
+    "mounting_rpy": {
+      "mode": "config_rpy_patch",
+      "file": "config_sensors.json",
+      "t_field": "$.sensors.T_lidar_imu",
+      "rpy_field": "$.sensors.lidar_mounting_rpy"
+    },
+    "imu_acc_noise": {
+      "mode": "config_patch",
+      "file": "config_sensors.json",
+      "jsonpath": "$.sensors.imu_acc_noise"
+    },
+    "imu_gyro_noise": {
+      "mode": "config_patch",
+      "file": "config_sensors.json",
+      "jsonpath": "$.sensors.imu_gyro_noise"
+    },
+    "init_window_size": {
+      "mode": "config_patch",
+      "file": "config_odometry_cpu.json",
+      "jsonpath": "$.odometry_estimation.initialization_window_size"
+    },
+    "smoother_lag": {
+      "mode": "config_patch",
+      "file": "config_odometry_cpu.json",
+      "jsonpath": "$.odometry_estimation.smoother_lag"
+    },
+    "keyframe_strategy": {
+      "mode": "config_patch",
+      "file": "config_sub_mapping_cpu.json",
+      "jsonpath": "$.sub_mapping.keyframe_update_strategy"
+    },
+    "keyframe_interval_trans": {
+      "mode": "config_patch",
+      "file": "config_sub_mapping_cpu.json",
+      "jsonpath": "$.sub_mapping.keyframe_update_interval_trans"
+    },
+    "keyframe_max_num": {
+      "mode": "config_patch",
+      "file": "config_sub_mapping_cpu.json",
+      "jsonpath": "$.sub_mapping.max_num_keyframes"
+    },
+    "loop_overlap_min": {
+      "mode": "config_patch",
+      "file": "config_global_mapping_cpu.json",
+      "jsonpath": "$.global_mapping.min_implicit_loop_overlap"
+    },
+    "preprocess_downsample_target": {
+      "mode": "config_patch",
+      "file": "config_preprocess.json",
+      "jsonpath": "$.preprocess.random_downsample_target"
+    },
+    "preprocess_downsample_rate": {
+      "mode": "config_patch",
+      "file": "config_preprocess.json",
+      "jsonpath": "$.preprocess.random_downsample_rate"
+    }
+  },
+  "//_params_note": "manual `params` array 已删——runner/manifest.rs::synthesize_params 会自动从 params_schema+params_bindings 派生 Vec<Param>。想加参数只改上面两处即可，不需要再手工同步这里。",
+  "params": [],
+  "exit_codes_ok": [0, 139],
+  "command": "LD_PRELOAD=/opt/glim_offline/lib/libglim_dense_dump.so GLIM_DUMP_RAW_FRAMES_DIR={out:map}/raw_frames glim_offline {in:scan} -c /glim/config -o {out:map} --window {param:window} {?db3:--imu-topic {param:imu_topic} --points-topic {param:points_topic}}"
+}
