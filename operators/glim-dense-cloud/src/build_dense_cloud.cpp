@@ -28,6 +28,10 @@
 #include <glim/common/cloud_deskewing.hpp>
 
 #include <pcl/point_cloud.h>
+#include <pcl/filters/statistical_outlier_removal.h>
+#include <pcl/features/normal_3d_omp.h>
+#include <pcl/search/kdtree.h>
+#include <pcl/common/common.h>
 #include <pcl/point_types.h>
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/io/pcd_io.h>
@@ -264,14 +268,46 @@ int main(int argc, char** argv) {
     ds = accum;
   }
 
+  // ─── Statistical outlier removal (remove flying points) ─────────────
+  // For each point: look at K=30 neighbours; if mean neighbour-distance exceeds
+  // (global mean) + 1.5*(global std) → drop. Removes isolated flyers that make
+  // walls look "fuzzy".
+  {
+    pcl::StatisticalOutlierRemoval<pcl::PointXYZI> sor;
+    sor.setInputCloud(ds);
+    sor.setMeanK(30);
+    sor.setStddevMulThresh(1.5);
+    pcl::PointCloud<pcl::PointXYZI>::Ptr sor_out(new pcl::PointCloud<pcl::PointXYZI>);
+    sor.filter(*sor_out);
+    std::cout << "[sor] " << ds->size() << " → " << sor_out->size()
+              << " (removed " << (ds->size() - sor_out->size()) << " outliers)\n";
+    ds = sor_out;
+  }
+
+  // ─── Normal estimation (K=30, OMP multi-threaded) ───────────────────
+  // Adds surface normals to the PLY. Downstream tools (vismap / MeshLab /
+  // CloudCompare) use them for shading, reconstruction, feature filtering.
+  pcl::PointCloud<pcl::Normal>::Ptr normals(new pcl::PointCloud<pcl::Normal>);
+  {
+    pcl::NormalEstimationOMP<pcl::PointXYZI, pcl::Normal> ne;
+    ne.setInputCloud(ds);
+    pcl::search::KdTree<pcl::PointXYZI>::Ptr tree(new pcl::search::KdTree<pcl::PointXYZI>);
+    ne.setSearchMethod(tree);
+    ne.setKSearch(30);
+    ne.compute(*normals);
+    std::cout << "[normal] computed " << normals->size() << " normals (K=30)\n";
+  }
+  pcl::PointCloud<pcl::PointXYZINormal>::Ptr with_normal(new pcl::PointCloud<pcl::PointXYZINormal>);
+  pcl::concatenateFields(*ds, *normals, *with_normal);
+
   fs::create_directories(out_path.parent_path());
   std::string ext = out_path.extension().string();
   std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c){ return std::tolower(c); });
   if (ext == ".pcd") {
-    pcl::io::savePCDFileBinary(out_path.string(), *ds);
+    pcl::io::savePCDFileBinary(out_path.string(), *with_normal);
   } else {
-    pcl::io::savePLYFileBinary(out_path.string(), *ds);
+    pcl::io::savePLYFileBinary(out_path.string(), *with_normal);
   }
-  std::cout << "[done] wrote " << out_path << " (" << ds->size() << " points)\n";
+  std::cout << "[done] wrote " << out_path << " (" << with_normal->size() << " points with normals)\n";
   return 0;
 }

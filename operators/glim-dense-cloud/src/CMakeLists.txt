@@ -6,7 +6,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_BUILD_TYPE Release)
 
 find_package(glim REQUIRED)
-find_package(PCL 1.10 REQUIRED COMPONENTS common io filters)
+find_package(PCL 1.10 REQUIRED COMPONENTS common io filters features search kdtree)
 
 include_directories(${PCL_INCLUDE_DIRS})
 link_directories(${PCL_LIBRARY_DIRS})

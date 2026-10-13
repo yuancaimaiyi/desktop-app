@@ -50,6 +50,7 @@
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
 #include <pcl/filters/voxel_grid.h>
+#include <pcl/filters/statistical_outlier_removal.h>
 #include <pcl/kdtree/kdtree_flann.h>
 #include <pcl/io/ply_io.h>
 
@@ -385,6 +386,21 @@ int main(int argc, char** argv) {
     ds = accum;
   }
   accum.reset();
+
+  // Statistical outlier removal: K=30 neighbours, drop if mean dist > global_mean + 1.5*std.
+  // Same policy as glim-dense-cloud. Removes flying points so coloured walls look cleaner.
+  {
+    pcl::StatisticalOutlierRemoval<pcl::PointXYZ> sor;
+    sor.setInputCloud(ds);
+    sor.setMeanK(30);
+    sor.setStddevMulThresh(1.5);
+    pcl::PointCloud<pcl::PointXYZ>::Ptr sor_out(new pcl::PointCloud<pcl::PointXYZ>);
+    sor.filter(*sor_out);
+    std::cout << "[sor] " << ds->size() << " → " << sor_out->size()
+              << " (removed " << (ds->size() - sor_out->size()) << " outliers)\n";
+    ds = sor_out;
+  }
+
 
   // ─── Round 2: per-point colouring from spatially-nearest pano ───────────
   std::cout << "\n[round 2] colour each point via nearest-camera pano...\n";
